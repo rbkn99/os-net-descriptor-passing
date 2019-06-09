@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
     char buffer[BUFFER_SIZE];
     char size;
 
-    string msg = "aaaaaaa";
+    string data;
 
     utils::check(bind(fd, (sockaddr *) (&server), s_len), "in bind");
     utils::check(listen(fd, SOMAXCONN), "in listen");
@@ -83,24 +83,16 @@ int main(int argc, char *argv[]) {
         utils::check(pipe(pipe2), "in pipe2");
         utils::send_fd(ad, pipe2[1]);
 
-        int ret = read(ad, buffer, BUFFER_SIZE);
-        utils::check(ret, "error while reading");
-
-        size = msg.size();
+        data = "aaaaaaaa";
+        size = data.size();
         utils::send_msg(&size, 1, pipe1[1]);
-        utils::send_msg((&msg[0], size, pipe1[1]);
+        utils::send_msg(&data[0], size, pipe1[1]);
         utils::receive_msg(&size, 1, pipe2[0]);
-        msg.resize(size);
-        utils::receive_msg(&msg[0], size, pipe2[0]);
-        utils::print_msg(msg);
-        utils::check(shutdown(ad, SHUT_RDWR), "shutdown");
-        utils::check(close(ad), "close");
-        utils::check(close(pipe1[0]), "p_in");
-        utils::check(close(pipe1[1]), "p_in");
-        utils::check(close(pipe2[0]), "p_out");
-        utils::check(close(pipe2[1]), "p_out");
-    }
-}
+        data.resize(size);
 
+        utils::receive_msg(&data[0], size, pipe2[0]);
+        utils::print_msg(data);
+        utils::close_all(pipe1, pipe2, &ad);
+    }
 #pragma clang diagnostic pop
 }

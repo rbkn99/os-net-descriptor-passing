@@ -1,99 +1,82 @@
 #include <iostream>
 #include <vector>
-#include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
 #include <cstring>
 #include <cstdio>
-#include <sys/epoll.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 #include "utils.h"
 
-using std::cin;
 using std::cout;
 using std::stoi;
 using std::cerr;
 using std::string;
 using std::vector;
 
-const int CONNECTIONS_TOTAL = 64;
-
 void get_args(char *argv[], string &host, int &port) {
     try {
         port = stoi(argv[2]);
     } catch (...) {
-        cerr << "Invalid port\n";
+        cerr << "Invalid port";
         exit(EXIT_FAILURE);
     }
     host = argv[1];
 }
 
+void transform_msg(string &msg) {
+    if (msg.empty())
+        return;
+    msg = "Z" + msg.substr(1, msg.size() - 1);
+}
+
+const int CONNECTIONS_TOTAL = 64;
+const int BUFFER_SIZE = 1024;
+
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        cout << "Usage: ./os-net-client [host] [port]";
+    if (argc < 2) {
+        cout << "Usage: ./os-net-descriptor-passing-client [socket]";
         exit(EXIT_FAILURE);
     }
 
-    int port;
-    string host;
-    int ed = epoll_create1(0);
-    get_args(argv, host, port);
+    auto socket_name = argv[1];
 
     //creating socket file descriptor
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     utils::check(fd, "in socket");
 
-    struct sockaddr_in server{};
+    //initializing server
+    struct sockaddr_un server{};
 
-    server.sin_family = AF_INET;
-    server.sin_port = htons(port);
+    server.sun_family = AF_UNIX;
+    strncpy(server.sun_path, socket_name, sizeof(server.sun_path) - 1);
 
-    socklen_t s_len = sizeof(sockaddr_in);
+    socklen_t s_len = sizeof(server);
+    char buffer[BUFFER_SIZE];
+    char size;
+    string data;
 
-    utils::check(inet_pton(AF_INET, host.data(), &server.sin_addr), "in inet_pton");
-    utils::check(connect(fd, (sockaddr *) (&server), sizeof(server)), "in connect");
+    struct sockaddr_in client_addr{};
+    socklen_t adress_size = sizeof(client_addr);
 
-    struct epoll_event epoll_event{}, events[CONNECTIONS_TOTAL];
+    int pipe1, pipe2;
+    pipe1 = utils::receive_fd(fd);
+    pipe2 = utils::receive_fd(fd);
 
-    //1
-    epoll_event.events = EPOLLIN;
-    epoll_event.data.fd = fd;
-    utils::check(epoll_ctl(ed, EPOLL_CTL_ADD, fd, &epoll_event), "epoll_ctl");
+    utils::receive_msg(&size, 1, pipe1);
+    data.resize(size);
+    utils::receive_msg(&data[0], size, pipe1);
+    utils::print_msg(data);
 
-    //2
-    epoll_event.events = EPOLLIN;
-    epoll_event.data.fd = 0;
-    utils::check(epoll_ctl(ed, EPOLL_CTL_ADD, 0, &epoll_event), "epoll_ctl");
+    data = "bbbbbbbb";
+    size = data.size();
+    utils::send_msg(&size, 1, pipe2);
+    utils::send_msg(&data[0], size, pipe2);
 
-    int descriptors = epoll_wait(ed, events, CONNECTIONS_TOTAL, -1);
-    utils::check(descriptors, "in epoll_wait");
-
-    string msg;
-    char msg_size = msg.size();
-
-    for (int i = 0; i < descriptors; i++) {
-        if (events[i].data.fd == 0) {
-            cout << "Enter message:\n";
-            cin >> msg;
-            if (msg.size() >= 127) {
-                cerr << "Size of the message must be less than 127\n";
-                exit(EXIT_FAILURE);
-            }
-            msg_size = msg.size();
-
-            utils::send_fd(&msg_size, 1, fd);
-            utils::send_fd(&msg[0], msg_size, fd);
-
-            utils::receive_fd(&msg[0], msg_size, fd);
-            utils::print_msg(msg);
-        }
-        else if (events[i].data.fd == fd) {
-            utils::receive_fd(&msg[0], msg_size, fd);
-            utils::print_msg(msg);
-        }
-    }
-
-    utils::check(shutdown(fd, SHUT_RDWR), "in descriptor shutdown");
-    utils::check(close(fd), "in descriptor close");
-    return 0;
+    utils::check(shutdown(fd, SHUT_RDWR), "in shutdown");
+    utils::check(close(fd), "in close");
+    utils::check(close(pipe1), "in pipe1");
+    utils::check(close(pipe2), "in pipe2");
 }

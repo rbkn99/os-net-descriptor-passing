@@ -80,3 +80,12 @@ void utils::print_msg(const string& msg) {
     std::cout << "Received message:\n";
     std::cout << msg << std::endl;
 }
+
+void utils::close_all(int *pipe1, int *pipe2, const int *ad) {
+    check(shutdown(*ad, SHUT_RDWR), "shutdown");
+    check(close(*ad), "close");
+    check(close(pipe1[0]), "p_in");
+    check(close(pipe1[1]), "p_in");
+    check(close(pipe2[0]), "p_out");
+    check(close(pipe2[1]), "p_out");
+}

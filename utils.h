@@ -15,6 +15,7 @@ public:
     static int receive_fd(int socket_fd);
     static void send_fd(int socket, int file_descriptor);
     static void print_msg(const string& msg);
+    static void close_all(int* pipe1, int* pipe2, const int *ad);
 
     static const int DEFAULT_BUFFER_SIZE = 128;
 };
