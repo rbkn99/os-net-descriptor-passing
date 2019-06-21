@@ -33,66 +33,51 @@ void transform_msg(string &msg) {
 }
 
 const int CONNECTIONS_TOTAL = 64;
-const int BUFFER_SIZE = 1024;
+const int BUFFER_SIZE = 128;
+
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        cout << "Usage: ./os-net-descriptor-passing-server [socket]";
-        exit(EXIT_FAILURE);
-    }
-
-    auto socket_name = argv[1];
-    unlink(socket_name);
-
-    //creating socket file descriptor
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    utils::check(fd, "in socket");
-
-    //initializing server
-    struct sockaddr_un server{}, client{};
-
+    cout << "Usage: ./os-net-descriptor-passing-server\n";
+    struct sockaddr_un server{};
     server.sun_family = AF_UNIX;
-    strncpy(server.sun_path, socket_name, sizeof(server.sun_path) - 1);
+    memcpy(server.sun_path, utils::SOCKET.c_str(), utils::SOCKET.size());
 
-    socklen_t s_len = sizeof(server);
-    char buffer[BUFFER_SIZE];
-    char size;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    utils::check(fd, "in fd");
+    unlink(utils::SOCKET.c_str());
 
-    string data;
-
-    utils::check(bind(fd, (sockaddr *) (&server), s_len), "in bind");
+    utils::check((bind(fd, (sockaddr *) (&server), sizeof(server))), "in bind");
     utils::check(listen(fd, SOMAXCONN), "in listen");
 
-    //running...
+    char buffer[CMSG_SPACE(sizeof(int))], data[BUFFER_SIZE];
+    int cd;
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
+    while(true) {
+        //cout << "something connected...\n";
 
-    while (true) {
-        struct sockaddr_in client_addr{};
-        socklen_t address_size = sizeof(client_addr);
+        cd = accept(fd, NULL, NULL);
+        utils::check(cd, "in accept");
 
-        int ad = accept(fd, (struct sockaddr *) &client_addr, &address_size);
-        if (ad == -1) {
-            perror("bad accept descriptor");
-            continue;
-        }
-        int pipe1[2], pipe2[2];
-        utils::check(pipe(pipe1), "in pipe1");
-        utils::send_fd(ad, pipe1[0]);
+        struct msghdr msg{};
+        struct iovec iv{};
+        memset(buffer, 0, BUFFER_SIZE);
+        iv.iov_len = sizeof(data);
+        iv.iov_base = &data;
 
-        utils::check(pipe(pipe2), "in pipe2");
-        utils::send_fd(ad, pipe2[1]);
+        msg.msg_iov = &iv;
+        msg.msg_iovlen = 1;
+        msg.msg_control = buffer;
+        msg.msg_controllen = sizeof (buffer);
 
-        data = "aaaaaaaa";
-        size = data.size();
-        utils::send_msg(&size, 1, pipe1[1]);
-        utils::send_msg(&data[0], size, pipe1[1]);
-        utils::receive_msg(&size, 1, pipe2[0]);
-        data.resize(size);
+        struct cmsghdr* cmsg;
+        cmsg = CMSG_FIRSTHDR(&msg);
+        cmsg->cmsg_type = SCM_RIGHTS;
+        cmsg->cmsg_level = SOL_SOCKET;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
 
-        utils::receive_msg(&data[0], size, pipe2[0]);
-        utils::print_msg(data);
-        utils::close_all(pipe1, pipe2, &ad);
+        utils::check(sendmsg(cd, &msg, 0), "in sendmsg");
     }
 #pragma clang diagnostic pop
 }

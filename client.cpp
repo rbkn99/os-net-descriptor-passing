@@ -32,51 +32,45 @@ void transform_msg(string &msg) {
     msg = "Z" + msg.substr(1, msg.size() - 1);
 }
 
-const int CONNECTIONS_TOTAL = 64;
-const int BUFFER_SIZE = 1024;
+const int BUFFER_SIZE = 128;
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        cout << "Usage: ./os-net-descriptor-passing-client [socket]";
-        exit(EXIT_FAILURE);
-    }
+    cout << "Usage: ./os-net-descriptor-passing-client\n";
+    struct sockaddr_un client{};
+    client.sun_family = AF_UNIX;
+    memcpy(client.sun_path, utils::SOCKET.c_str(), utils::SOCKET.size());
 
-    auto socket_name = argv[1];
-
-    //creating socket file descriptor
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    utils::check(fd, "in socket");
+    utils::check(fd, "in fd");
+    utils::check(connect(fd, (sockaddr *) (&client), sizeof(client)), "in connect");
 
-    //initializing server
-    struct sockaddr_un server{};
+    char buffer[CMSG_SPACE(sizeof(int))], data[BUFFER_SIZE];
 
-    server.sun_family = AF_UNIX;
-    strncpy(server.sun_path, socket_name, sizeof(server.sun_path) - 1);
+    struct msghdr msg{};
+    struct iovec iv{};
+    memset(buffer, 0, BUFFER_SIZE);
+    //utils::set_msg(&msg, &iv, buffer, data);
+    iv.iov_len = sizeof(data);
+    iv.iov_base = &data;
 
-    socklen_t s_len = sizeof(server);
-    char buffer[BUFFER_SIZE];
-    char size;
-    string data;
+    msg.msg_iov = &iv;
+    msg.msg_iovlen = 1;
+    msg.msg_control = buffer;
+    msg.msg_controllen = sizeof (buffer);
+    utils::check(recvmsg(fd, &msg, 0), "in recvmsg");
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
 
-    struct sockaddr_in client_addr{};
-    socklen_t adress_size = sizeof(client_addr);
-
-    int pipe1, pipe2;
-    pipe1 = utils::receive_fd(fd);
-    pipe2 = utils::receive_fd(fd);
-
-    utils::receive_msg(&size, 1, pipe1);
-    data.resize(size);
-    utils::receive_msg(&data[0], size, pipe1);
-    utils::print_msg(data);
-
-    data = "bbbbbbbb";
-    size = data.size();
-    utils::send_msg(&size, 1, pipe2);
-    utils::send_msg(&data[0], size, pipe2);
-
-    utils::check(shutdown(fd, SHUT_RDWR), "in shutdown");
-    utils::check(close(fd), "in close");
-    utils::check(close(pipe1), "in pipe1");
-    utils::check(close(pipe2), "in pipe2");
+    cout << "Enter :q to quit, else type smth" << std::endl;
+    string std_msg;
+    dup2(*CMSG_DATA(cmsg), 1);
+    bool flag  = true;
+    while (flag) {
+        getline(std::cin, std_msg);
+        if (std_msg == ":q") {
+            flag = false;
+        }
+        else {
+            cout << std_msg << std::endl;
+        }
+    }
 }
